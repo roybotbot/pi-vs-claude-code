@@ -24,16 +24,11 @@ import { spawn } from "child_process";
 import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
 import { join, resolve } from "path";
 import { applyExtensionDefaults } from "./themeMap.ts";
+import { scanAgentDirectory, type AgentDef as LoaderAgentDef, type ValidationWarning } from "./utils/agent-loader.ts";
 
 // ── Types ────────────────────────────────────────
 
-interface AgentDef {
-	name: string;
-	description: string;
-	tools: string;
-	systemPrompt: string;
-	file: string;
-}
+type AgentDef = LoaderAgentDef;
 
 interface AgentState {
 	def: AgentDef;
@@ -74,63 +69,7 @@ function parseTeamsYaml(raw: string): Record<string, string[]> {
 	return teams;
 }
 
-// ── Frontmatter Parser ───────────────────────────
 
-function parseAgentFile(filePath: string): AgentDef | null {
-	try {
-		const raw = readFileSync(filePath, "utf-8");
-		const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-		if (!match) return null;
-
-		const frontmatter: Record<string, string> = {};
-		for (const line of match[1].split("\n")) {
-			const idx = line.indexOf(":");
-			if (idx > 0) {
-				frontmatter[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-			}
-		}
-
-		if (!frontmatter.name) return null;
-
-		return {
-			name: frontmatter.name,
-			description: frontmatter.description || "",
-			tools: frontmatter.tools || "read,grep,find,ls",
-			systemPrompt: match[2].trim(),
-			file: filePath,
-		};
-	} catch {
-		return null;
-	}
-}
-
-function scanAgentDirs(cwd: string): AgentDef[] {
-	const dirs = [
-		join(cwd, "agents"),
-		join(cwd, ".claude", "agents"),
-		join(cwd, ".pi", "agents"),
-	];
-
-	const agents: AgentDef[] = [];
-	const seen = new Set<string>();
-
-	for (const dir of dirs) {
-		if (!existsSync(dir)) continue;
-		try {
-			for (const file of readdirSync(dir)) {
-				if (!file.endsWith(".md")) continue;
-				const fullPath = resolve(dir, file);
-				const def = parseAgentFile(fullPath);
-				if (def && !seen.has(def.name.toLowerCase())) {
-					seen.add(def.name.toLowerCase());
-					agents.push(def);
-				}
-			}
-		} catch {}
-	}
-
-	return agents;
-}
 
 // ── Extension ────────────────────────────────────
 
@@ -152,7 +91,28 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// Load all agent definitions
-		allAgentDefs = scanAgentDirs(cwd);
+		const agentDirs = [
+			join(cwd, "agents"),
+			join(cwd, ".claude", "agents"),
+			join(cwd, ".pi", "agents"),
+		];
+
+		const seen = new Set<string>();
+		allAgentDefs = [];
+
+		for (const dir of agentDirs) {
+			const agents = scanAgentDirectory(dir, (_file, warning) => {
+				if (warning.severity === "error") {
+					console.error(`[agent-team] ${_file}: ${warning.message}`);
+				}
+			});
+			for (const [key, def] of agents) {
+				if (!seen.has(key)) {
+					seen.add(key);
+					allAgentDefs.push(def);
+				}
+			}
+		}
 
 		// Load teams from .pi/agents/teams.yaml
 		const teamsPath = join(cwd, ".pi", "agents", "teams.yaml");
