@@ -23,6 +23,7 @@ import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { applyExtensionDefaults } from "./themeMap.ts";
 import { scanAgentDirectory, type AgentDef, type ValidationWarning } from "./utils/agent-loader.ts";
+import { buildSubprocessEnv, detectCredentialFailure } from "./utils/subprocess-env.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -257,12 +258,15 @@ export default function (pi: ExtensionAPI) {
 		];
 
 		const textChunks: string[] = [];
+		const subEnv = buildSubprocessEnv(model, state.def.env);
 
 		return new Promise((resolve) => {
 			const proc = spawn("pi", args, {
 				stdio: ["ignore", "pipe", "pipe"],
-				env: { ...process.env },
+				env: subEnv,
 			});
+
+			let stderrChunks: string[] = [];
 
 			let buffer = "";
 
@@ -290,7 +294,7 @@ export default function (pi: ExtensionAPI) {
 			});
 
 			proc.stderr!.setEncoding("utf-8");
-			proc.stderr!.on("data", () => {});
+			proc.stderr!.on("data", (chunk: string) => { stderrChunks.push(chunk); });
 
 			proc.on("close", (code) => {
 				if (buffer.trim()) {
@@ -315,6 +319,15 @@ export default function (pi: ExtensionAPI) {
 					`${displayName(state.def.name)} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
 					state.status === "done" ? "success" : "error"
 				);
+
+				// SEC-002: detect credential failures and surface diagnostic
+				if (code !== 0) {
+					const combinedOutput = full + "\n" + stderrChunks.join("");
+					const diagnostic = detectCredentialFailure(combinedOutput, state.def.name, subEnv);
+					if (diagnostic) {
+						ctx.ui.notify(diagnostic, "warning");
+					}
+				}
 
 				resolve({
 					output: full,

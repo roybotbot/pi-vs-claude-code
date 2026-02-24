@@ -29,6 +29,7 @@ import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync } from "fs
 import { join, resolve } from "path";
 import { applyExtensionDefaults } from "./themeMap.ts";
 import { scanAgentDirectory, type AgentDef as LoaderAgentDef, type ValidationWarning } from "./utils/agent-loader.ts";
+import { buildSubprocessEnv, detectCredentialFailure } from "./utils/subprocess-env.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -320,12 +321,15 @@ export default function (pi: ExtensionAPI) {
 		const textChunks: string[] = [];
 		const startTime = Date.now();
 		const state = stepStates[stepIndex];
+		const subEnv = buildSubprocessEnv(model, agentDef.env);
 
 		return new Promise((resolve) => {
 			const proc = spawn("pi", args, {
 				stdio: ["ignore", "pipe", "pipe"],
-				env: { ...process.env },
+				env: subEnv,
 			});
+
+			let stderrChunks: string[] = [];
 
 			const timer = setInterval(() => {
 				state.elapsed = Date.now() - startTime;
@@ -358,7 +362,7 @@ export default function (pi: ExtensionAPI) {
 			});
 
 			proc.stderr!.setEncoding("utf-8");
-			proc.stderr!.on("data", () => {});
+			proc.stderr!.on("data", (chunk: string) => { stderrChunks.push(chunk); });
 
 			proc.on("close", (code) => {
 				if (buffer.trim()) {
@@ -379,6 +383,15 @@ export default function (pi: ExtensionAPI) {
 
 				if (code === 0) {
 					agentSessions.set(agentKey, agentSessionFile);
+				}
+
+				// SEC-002: detect credential failures and surface diagnostic
+				if (code !== 0) {
+					const combinedOutput = output + "\n" + stderrChunks.join("");
+					const diagnostic = detectCredentialFailure(combinedOutput, agentDef.name, subEnv);
+					if (diagnostic) {
+						console.error(`[agent-chain] ${diagnostic}`);
+					}
 				}
 
 				resolve({ output, exitCode: code ?? 1, elapsed });

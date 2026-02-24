@@ -88,9 +88,10 @@ If someone adds an agent `.md` file with unusual characters in the system prompt
 
 ---
 
-### SEC-002: Full Environment Inheritance in Subprocess Spawning
+### SEC-002: Full Environment Inheritance in Subprocess Spawning ✅ FIXED
 
 **Severity:** 🔴 Critical
+**Status:** Fixed — 2026-02-23
 **Files:** `extensions/agent-team.ts`, `extensions/agent-chain.ts`, `extensions/pi-pi.ts`, `extensions/subagent-widget.ts`
 
 #### Description
@@ -630,7 +631,7 @@ The current `"../.claude/commands"` reference would trigger a warning on startup
 | ID | Severity | Issue | Effort | Fix Priority |
 |----|----------|-------|--------|-------------|
 | SEC-001 | 🔴 Critical | Command injection in spawn() | Medium | ✅ FIXED |
-| SEC-002 | 🔴 Critical | Full env inheritance in subprocesses | Low | P0 |
+| SEC-002 | 🔴 Critical | Full env inheritance in subprocesses | Low | ✅ FIXED |
 | SEC-003 | 🔴 Critical | Damage-control path bypass | High | P0 |
 | SEC-004 | 🔴 Critical | ReDoS in damage-control rules | Medium | P0 |
 | SEC-005 | 🟠 High | .env.sample key format hints | Trivial | P1 |

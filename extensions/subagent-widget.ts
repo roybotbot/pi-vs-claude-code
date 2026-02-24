@@ -21,6 +21,7 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { applyExtensionDefaults } from "./themeMap.ts";
+import { buildSubprocessEnv, detectCredentialFailure } from "./utils/subprocess-env.ts";
 
 interface SubState {
 	id: number;
@@ -138,6 +139,9 @@ export default function (pi: ExtensionAPI) {
 			? `${ctx.model.provider}/${ctx.model.id}`
 			: "openrouter/google/gemini-3-flash-preview";
 
+		// subagent-widget has no agent .md files, so no env frontmatter — just model key
+		const subEnv = buildSubprocessEnv(model);
+
 		return new Promise<void>((resolve) => {
 			const proc = spawn("pi", [
 				"--mode", "json",
@@ -150,7 +154,7 @@ export default function (pi: ExtensionAPI) {
 				prompt,
 			], {
 				stdio: ["ignore", "pipe", "pipe"],
-				env: { ...process.env },
+				env: subEnv,
 			});
 
 			state.proc = proc;
@@ -192,6 +196,14 @@ export default function (pi: ExtensionAPI) {
 					`Subagent #${state.id} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
 					state.status === "done" ? "success" : "error"
 				);
+
+				// SEC-002: detect credential failures and surface diagnostic
+				if (code !== 0) {
+					const diagnostic = detectCredentialFailure(result, `subagent #${state.id}`, subEnv);
+					if (diagnostic) {
+						ctx.ui.notify(diagnostic, "warning");
+					}
+				}
 
 				pi.sendMessage({
 					customType: "subagent-result",

@@ -25,6 +25,8 @@ export interface AgentDef {
 	tools: string;
 	systemPrompt: string;
 	file: string;
+	/** Optional comma-separated env var names this agent needs beyond the model API key. */
+	env?: string;
 }
 
 export interface ValidationWarning {
@@ -230,12 +232,15 @@ export function loadAgentFile(filePath: string): LoadResult {
 	const tools = fields.tools || "read,grep,find,ls";
 	const systemPrompt = body.trim();
 
+	const envField = fields.env || undefined;
+
 	const agent: AgentDef = {
 		name,
 		description,
 		tools,
 		systemPrompt,
 		file: filePath,
+		env: envField,
 	};
 
 	const warnings = validateAgent(agent);
