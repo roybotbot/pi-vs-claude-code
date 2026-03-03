@@ -92,9 +92,11 @@ open +exts:
     escaped="${escaped//\"/\\\"}"
     osascript -e "tell application \"iTerm\"
         activate
-        set w to create window with default profile
-        tell current session of w
-            write text \"$escaped\"
+        tell current window
+            set t to create tab with default profile
+            tell current session of t
+                write text \"$escaped\"
+            end tell
         end tell
     end tell"
 
