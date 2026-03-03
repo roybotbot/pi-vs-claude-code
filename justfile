@@ -90,7 +90,7 @@ open +exts:
     cmd="cd '{{justfile_directory()}}' && pi$args"
     escaped="${cmd//\\/\\\\}"
     escaped="${escaped//\"/\\\"}"
-    osascript -e "tell application \"Terminal\" to do script \"$escaped\""
+    osascript -e "tell application \"iTerm\" to create window with default profile command \"$escaped\""
 
 # Open every extension in its own terminal window
 all:
