@@ -1,4 +1,5 @@
 set dotenv-load := true
+set working-directory := "/Users/roy/Utilities/pi-vs-claude-code"
 
 default:
     @just --list
