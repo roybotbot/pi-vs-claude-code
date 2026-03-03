@@ -28,7 +28,8 @@ import { spawn } from "child_process";
 import { readFileSync, existsSync, readdirSync, mkdirSync, unlinkSync } from "fs";
 import { join, resolve } from "path";
 import { applyExtensionDefaults } from "./themeMap.ts";
-import { scanAgentDirectory, type AgentDef as LoaderAgentDef, type ValidationWarning, type CollisionWarning } from "./utils/agent-loader.ts";
+import { scanAgentDirectory, type AgentDef as LoaderAgentDef, type ValidationWarning } from "./utils/agent-loader.ts";
+import { buildSubprocessEnv, detectCredentialFailure } from "./utils/subprocess-env.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -139,7 +140,6 @@ export default function (pi: ExtensionAPI) {
 	// Per-step state for the active chain
 	let stepStates: StepState[] = [];
 	let pendingReset = false;
-	let lastCollisions: CollisionWarning[] = [];
 
 	function loadChains(cwd: string) {
 		sessionDir = join(cwd, ".pi", "agent-sessions");
@@ -148,19 +148,17 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		allAgents = new Map<string, AgentDef>();
-		lastCollisions = [];
 		const agentDirs = [
 			join(cwd, "agents"),
 			join(cwd, ".claude", "agents"),
 			join(cwd, ".pi", "agents"),
 		];
 		for (const dir of agentDirs) {
-			const { agents, collisions } = scanAgentDirectory(dir, (_file, warning) => {
+			const agents = scanAgentDirectory(dir, (_file, warning) => {
 				if (warning.severity === "error") {
 					console.error(`[agent-chain] ${_file}: ${warning.message}`);
 				}
 			});
-			lastCollisions.push(...collisions);
 			for (const [key, def] of agents) {
 				if (!allAgents.has(key)) {
 					allAgents.set(key, def);
@@ -323,12 +321,15 @@ export default function (pi: ExtensionAPI) {
 		const textChunks: string[] = [];
 		const startTime = Date.now();
 		const state = stepStates[stepIndex];
+		const subEnv = buildSubprocessEnv(model, agentDef.env);
 
 		return new Promise((resolve) => {
 			const proc = spawn("pi", args, {
 				stdio: ["ignore", "pipe", "pipe"],
-				env: { ...process.env },
+				env: subEnv,
 			});
+
+			let stderrChunks: string[] = [];
 
 			const timer = setInterval(() => {
 				state.elapsed = Date.now() - startTime;
@@ -361,7 +362,7 @@ export default function (pi: ExtensionAPI) {
 			});
 
 			proc.stderr!.setEncoding("utf-8");
-			proc.stderr!.on("data", () => {});
+			proc.stderr!.on("data", (chunk: string) => { stderrChunks.push(chunk); });
 
 			proc.on("close", (code) => {
 				if (buffer.trim()) {
@@ -382,6 +383,15 @@ export default function (pi: ExtensionAPI) {
 
 				if (code === 0) {
 					agentSessions.set(agentKey, agentSessionFile);
+				}
+
+				// SEC-002: detect credential failures and surface diagnostic
+				if (code !== 0) {
+					const combinedOutput = output + "\n" + stderrChunks.join("");
+					const diagnostic = detectCredentialFailure(combinedOutput, agentDef.name, subEnv);
+					if (diagnostic) {
+						console.error(`[agent-chain] ${diagnostic}`);
+					}
 				}
 
 				resolve({ output, exitCode: code ?? 1, elapsed });
@@ -710,10 +720,6 @@ ${agentCatalog}
 
 		// Reload chains + clear agentSessions map (all agents start fresh)
 		loadChains(_ctx.cwd);
-
-		for (const c of lastCollisions) {
-			_ctx.ui.notify(`⚠️ Agent collision: "${c.name}" in ${c.duplicatePath} — already loaded from ${c.originalPath}`, "warning");
-		}
 
 		if (chains.length === 0) {
 			_ctx.ui.notify("No chains found in .pi/agents/agent-chain.yaml", "warning");

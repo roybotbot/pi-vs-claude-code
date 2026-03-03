@@ -24,7 +24,8 @@ import { spawn } from "child_process";
 import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync } from "fs";
 import { join, resolve } from "path";
 import { applyExtensionDefaults } from "./themeMap.ts";
-import { scanAgentDirectory, type AgentDef as LoaderAgentDef, type ValidationWarning, type CollisionWarning } from "./utils/agent-loader.ts";
+import { scanAgentDirectory, type AgentDef as LoaderAgentDef, type ValidationWarning } from "./utils/agent-loader.ts";
+import { buildSubprocessEnv, detectCredentialFailure } from "./utils/subprocess-env.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -82,7 +83,6 @@ export default function (pi: ExtensionAPI) {
 	let widgetCtx: any;
 	let sessionDir = "";
 	let contextWindow = 0;
-	let lastCollisions: CollisionWarning[] = [];
 
 	function loadAgents(cwd: string) {
 		// Create session storage dir
@@ -91,7 +91,7 @@ export default function (pi: ExtensionAPI) {
 			mkdirSync(sessionDir, { recursive: true });
 		}
 
-		// Load all agent definitions (recursive walk with collision detection)
+		// Load all agent definitions
 		const agentDirs = [
 			join(cwd, "agents"),
 			join(cwd, ".claude", "agents"),
@@ -100,15 +100,13 @@ export default function (pi: ExtensionAPI) {
 
 		const seen = new Set<string>();
 		allAgentDefs = [];
-		lastCollisions = [];
 
 		for (const dir of agentDirs) {
-			const { agents, collisions } = scanAgentDirectory(dir, (_file, warning) => {
+			const agents = scanAgentDirectory(dir, (_file, warning) => {
 				if (warning.severity === "error") {
 					console.error(`[agent-team] ${_file}: ${warning.message}`);
 				}
 			});
-			lastCollisions.push(...collisions);
 			for (const [key, def] of agents) {
 				if (!seen.has(key)) {
 					seen.add(key);
@@ -327,13 +325,16 @@ export default function (pi: ExtensionAPI) {
 
 		const textChunks: string[] = [];
 
+		const subEnv = buildSubprocessEnv(model, state.def.env);
+
 		return new Promise((resolve) => {
 			const proc = spawn("pi", args, {
 				stdio: ["ignore", "pipe", "pipe"],
-				env: { ...process.env },
+				env: subEnv,
 			});
 
 			let buffer = "";
+			let stderrChunks: string[] = [];
 
 			proc.stdout!.setEncoding("utf-8");
 			proc.stdout!.on("data", (chunk: string) => {
@@ -375,7 +376,7 @@ export default function (pi: ExtensionAPI) {
 			});
 
 			proc.stderr!.setEncoding("utf-8");
-			proc.stderr!.on("data", () => {});
+			proc.stderr!.on("data", (chunk: string) => { stderrChunks.push(chunk); });
 
 			proc.on("close", (code) => {
 				if (buffer.trim()) {
@@ -405,6 +406,15 @@ export default function (pi: ExtensionAPI) {
 					`${displayName(state.def.name)} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
 					state.status === "done" ? "success" : "error"
 				);
+
+				// SEC-002: detect credential failures and surface diagnostic
+				if (code !== 0) {
+					const combinedOutput = full + "\n" + stderrChunks.join("");
+					const diagnostic = detectCredentialFailure(combinedOutput, state.def.name, subEnv);
+					if (diagnostic) {
+						ctx.ui.notify(diagnostic, "warning");
+					}
+				}
 
 				resolve({
 					output: full,
@@ -651,10 +661,6 @@ ${agentCatalog}`,
 		}
 
 		loadAgents(_ctx.cwd);
-
-		for (const c of lastCollisions) {
-			_ctx.ui.notify(`⚠️ Agent collision: "${c.name}" in ${c.duplicatePath} — already loaded from ${c.originalPath}`, "warning");
-		}
 
 		// Default to first team — use /agents-team to switch
 		const teamNames = Object.keys(teams);

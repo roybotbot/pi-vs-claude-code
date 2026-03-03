@@ -22,7 +22,8 @@ import { spawn } from "child_process";
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { applyExtensionDefaults } from "./themeMap.ts";
-import { scanAgentDirectory, type AgentDef, type ValidationWarning, type CollisionWarning } from "./utils/agent-loader.ts";
+import { scanAgentDirectory, type AgentDef, type ValidationWarning } from "./utils/agent-loader.ts";
+import { buildSubprocessEnv, detectCredentialFailure } from "./utils/subprocess-env.ts";
 
 // ── Types ────────────────────────────────────────
 
@@ -67,23 +68,20 @@ export default function (pi: ExtensionAPI) {
 	const experts: Map<string, ExpertState> = new Map();
 	let gridCols = 3;
 	let widgetCtx: any;
-	let lastCollisions: CollisionWarning[] = [];
 
 	function loadExperts(cwd: string) {
 		// Pi Pi experts live in their own dedicated directory
 		const piPiDir = join(cwd, ".pi", "agents", "pi-pi");
 
 		experts.clear();
-		lastCollisions = [];
 
 		if (!existsSync(piPiDir)) return;
 
-		const { agents: validAgents, collisions } = scanAgentDirectory(piPiDir, (_file, warning) => {
+		const validAgents = scanAgentDirectory(piPiDir, (_file, warning) => {
 			if (warning.severity === "error") {
 				console.error(`[pi-pi] ${_file}: ${warning.message}`);
 			}
 		});
-		lastCollisions = collisions;
 
 		// Exclude the orchestrator itself from the expert list
 		validAgents.delete("pi-orchestrator");
@@ -260,12 +258,15 @@ export default function (pi: ExtensionAPI) {
 		];
 
 		const textChunks: string[] = [];
+		const subEnv = buildSubprocessEnv(model, state.def.env);
 
 		return new Promise((resolve) => {
 			const proc = spawn("pi", args, {
 				stdio: ["ignore", "pipe", "pipe"],
-				env: { ...process.env },
+				env: subEnv,
 			});
+
+			let stderrChunks: string[] = [];
 
 			let buffer = "";
 
@@ -293,7 +294,7 @@ export default function (pi: ExtensionAPI) {
 			});
 
 			proc.stderr!.setEncoding("utf-8");
-			proc.stderr!.on("data", () => {});
+			proc.stderr!.on("data", (chunk: string) => { stderrChunks.push(chunk); });
 
 			proc.on("close", (code) => {
 				if (buffer.trim()) {
@@ -318,6 +319,15 @@ export default function (pi: ExtensionAPI) {
 					`${displayName(state.def.name)} ${state.status} in ${Math.round(state.elapsed / 1000)}s`,
 					state.status === "done" ? "success" : "error"
 				);
+
+				// SEC-002: detect credential failures and surface diagnostic
+				if (code !== 0) {
+					const combinedOutput = full + "\n" + stderrChunks.join("");
+					const diagnostic = detectCredentialFailure(combinedOutput, state.def.name, subEnv);
+					if (diagnostic) {
+						ctx.ui.notify(diagnostic, "warning");
+					}
+				}
 
 				resolve({
 					output: full,
@@ -560,11 +570,6 @@ Ask specific questions about what you need to BUILD. Each expert will return doc
 		widgetCtx = _ctx;
 
 		loadExperts(_ctx.cwd);
-
-		for (const c of lastCollisions) {
-			_ctx.ui.notify(`⚠️ Expert collision: "${c.name}" in ${c.duplicatePath} — already loaded from ${c.originalPath}`, "warning");
-		}
-
 		updateWidget();
 
 		const expertNames = Array.from(experts.values()).map(s => displayName(s.def.name)).join(", ");

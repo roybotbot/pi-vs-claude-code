@@ -88,9 +88,10 @@ If someone adds an agent `.md` file with unusual characters in the system prompt
 
 ---
 
-### SEC-002: Full Environment Inheritance in Subprocess Spawning
+### SEC-002: Full Environment Inheritance in Subprocess Spawning ✅ FIXED
 
 **Severity:** 🔴 Critical
+**Status:** Fixed — 2026-02-23
 **Files:** `extensions/agent-team.ts`, `extensions/agent-chain.ts`, `extensions/pi-pi.ts`, `extensions/subagent-widget.ts`
 
 #### Description
@@ -103,6 +104,16 @@ spawn("pi", args, {
     env: { ...process.env },  // inherits ALL env vars
 });
 ```
+
+#### Additional Findings
+
+Investigation of the pi-pi experts revealed that `firecrawl` is not used as a Pi tool — it is invoked as a CLI binary through bash. All 9 pi-pi expert agents (ext-expert, theme-expert, skill-expert, etc.) declare `tools: read,grep,find,ls,bash` and their system prompts instruct them to run:
+
+```bash
+firecrawl scrape <url> -f markdown -o /tmp/... || curl -sL <url> -o /tmp/...
+```
+
+The `firecrawl` CLI consumes `FIRECRAWL_API_KEY` from the environment directly. If the key is missing, the command fails and the `|| curl` fallback fetches the content instead. This means restricting the environment would degrade firecrawl to curl for these experts, but would not break them.
 
 #### Fix Plan
 
@@ -123,9 +134,21 @@ The helper maps provider prefixes to env var names:
 - `google/*` → `GEMINI_API_KEY`
 - `openrouter/*` → `OPENROUTER_API_KEY`
 
+Additionally, the `buildSubprocessEnv()` helper should log which env vars were passed to the subprocess. When a subprocess exits with a non-zero code, scan its stderr/stdout for credential-related failure patterns (`401`, `403`, `Authentication failed`, `API key`, `Unauthorized`, `EACCES`, `permission denied`). If a match is found, surface a diagnostic notification:
+
+> ⚠️ Subagent "builder" failed with what looks like a missing credential.
+> Only `ANTHROPIC_API_KEY` was passed to this subprocess.
+> If this agent needs additional env vars (e.g., `NPM_TOKEN`, `GITHUB_TOKEN`),
+> add them to the `env` field in its agent .md frontmatter:
+> ```
+> env: NPM_TOKEN, GITHUB_TOKEN
+> ```
+
+This turns an opaque failure into an actionable message pointing the user to the exact fix.
+
 #### Behavior Change
 
-Subagents using OpenAI models would no longer see `ANTHROPIC_API_KEY` and vice versa. The pi-pi experts that use firecrawl would need `env: FIRECRAWL_API_KEY` added to their frontmatter. Any extension spawning a subprocess that relies on an unexpected env var (like a custom `NODE_PATH` or proxy config) would break until that var is added to the allowlist. Most workflows would be unaffected since subprocesses only need the one API key for their model.
+Subagents using OpenAI models would no longer see `ANTHROPIC_API_KEY` and vice versa. The pi-pi experts would lose access to `FIRECRAWL_API_KEY` unless explicitly declared in their frontmatter — but their system prompts already include a `curl` fallback, so they would continue to work by falling back from firecrawl to curl. Adding `env: FIRECRAWL_API_KEY` to the 9 expert `.md` files would restore firecrawl access for those agents specifically. Any extension spawning a subprocess that relies on an unexpected env var (like a custom `NODE_PATH` or proxy config) would fail — but the credential-detection diagnostic would surface a clear message identifying the likely missing variable and how to add it via frontmatter. Most workflows would be unaffected since subprocesses only need the one API key for their model.
 
 ---
 
@@ -608,7 +631,7 @@ The current `"../.claude/commands"` reference would trigger a warning on startup
 | ID | Severity | Issue | Effort | Fix Priority |
 |----|----------|-------|--------|-------------|
 | SEC-001 | 🔴 Critical | Command injection in spawn() | Medium | ✅ FIXED |
-| SEC-002 | 🔴 Critical | Full env inheritance in subprocesses | Low | P0 |
+| SEC-002 | 🔴 Critical | Full env inheritance in subprocesses | Low | ✅ FIXED |
 | SEC-003 | 🔴 Critical | Damage-control path bypass | High | P0 |
 | SEC-004 | 🔴 Critical | ReDoS in damage-control rules | Medium | P0 |
 | SEC-005 | 🟠 High | .env.sample key format hints | Trivial | P1 |
