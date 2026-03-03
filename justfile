@@ -80,22 +80,21 @@ ext-theme-cycler:
 
 # utils
 
-# Open pi with one or more stacked extensions in a new terminal: just open minimal tool-counter
+PI_DIR := "/Users/roy/Utilities/pi-vs-claude-code"
+
+# Open pi with one or more stacked extensions in a new tab: just open minimal tool-counter
 open +exts:
     #!/usr/bin/env bash
     args=""
     for ext in {{exts}}; do
         args="$args -e extensions/$ext.ts"
     done
-    cmd="cd '{{justfile_directory()}}' && pi$args"
-    escaped="${cmd//\\/\\\\}"
-    escaped="${escaped//\"/\\\"}"
     osascript -e "tell application \"iTerm\"
         activate
         tell current window
             set t to create tab with default profile
             tell current session of t
-                write text \"$escaped\"
+                write text \"cd '{{PI_DIR}}' && pi$args\"
             end tell
         end tell
     end tell"
