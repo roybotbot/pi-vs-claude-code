@@ -1,6 +1,9 @@
 set dotenv-load := true
 set working-directory := "/Users/roy/Utilities/pi-vs-claude-code"
 
+jd := justfile_directory()
+id := invocation_directory()
+
 default:
     @just --list
 
@@ -8,76 +11,76 @@ default:
 
 # 1. default pi
 pi:
-    pi
+    cd {{id}} && pi
 
 # 2. Pure focus pi: strip footer and status line entirely
 ext-pure-focus:
-    pi -e extensions/pure-focus.ts
+    cd {{id}} && pi -e {{jd}}/extensions/pure-focus.ts
 
 # 3. Minimal pi: model name + 10-block context meter
 ext-minimal:
-    pi -e extensions/minimal.ts -e extensions/theme-cycler.ts
+    cd {{id}} && pi -e {{jd}}/extensions/minimal.ts -e {{jd}}/extensions/theme-cycler.ts
 
 # 4. Cross-agent pi: load commands from .claude/, .gemini/, .codex/ dirs
 ext-cross-agent:
-    pi -e extensions/cross-agent.ts -e extensions/minimal.ts
+    cd {{id}} && pi -e {{jd}}/extensions/cross-agent.ts -e {{jd}}/extensions/minimal.ts
 
 # 5. Purpose gate pi: declare intent before working, persistent widget, focus the system prompt on the ONE PURPOSE for this agent
 ext-purpose-gate:
-    pi -e extensions/purpose-gate.ts -e extensions/minimal.ts
+    cd {{id}} && pi -e {{jd}}/extensions/purpose-gate.ts -e {{jd}}/extensions/minimal.ts
 
 # 6. Customized footer pi: Tool counter, model, branch, cwd, cost, etc.
 ext-tool-counter:
-    pi -e extensions/tool-counter.ts
+    cd {{id}} && pi -e {{jd}}/extensions/tool-counter.ts
 
 # 7. Tool counter widget: tool call counts in a below-editor widget
 ext-tool-counter-widget:
-    pi -e extensions/tool-counter-widget.ts -e extensions/minimal.ts
+    cd {{id}} && pi -e {{jd}}/extensions/tool-counter-widget.ts -e {{jd}}/extensions/minimal.ts
 
 # 8. Subagent widget: /sub <task> with live streaming progress
 ext-subagent-widget:
-    pi -e extensions/subagent-widget.ts -e extensions/pure-focus.ts -e extensions/theme-cycler.ts
+    cd {{id}} && pi -e {{jd}}/extensions/subagent-widget.ts -e {{jd}}/extensions/pure-focus.ts -e {{jd}}/extensions/theme-cycler.ts
 
 # 9. TillDone: task-driven discipline — define tasks before working
 ext-tilldone:
-    pi -e extensions/tilldone.ts -e extensions/theme-cycler.ts
+    cd {{id}} && pi -e {{jd}}/extensions/tilldone.ts -e {{jd}}/extensions/theme-cycler.ts
 
 ext-pushover:
-    pi -e extensions/pushover-notify.ts -e extensions/minimal.ts
+    cd {{id}} && pi -e {{jd}}/extensions/pushover-notify.ts -e {{jd}}/extensions/minimal.ts
 
 #g2
 
 # 10. Agent team: dispatcher orchestrator with team select and grid dashboard
 ext-agent-team:
-    pi -e extensions/agent-team.ts -e extensions/theme-cycler.ts
+    cd {{id}} && pi -e {{jd}}/extensions/agent-team.ts -e {{jd}}/extensions/theme-cycler.ts
 
 # 11. System select: /system to pick an agent persona as system prompt
 ext-system-select:
-    pi -e extensions/system-select.ts -e extensions/minimal.ts -e extensions/theme-cycler.ts
+    cd {{id}} && pi -e {{jd}}/extensions/system-select.ts -e {{jd}}/extensions/minimal.ts -e {{jd}}/extensions/theme-cycler.ts
 
 # 12. Launch with Damage-Control safety auditing
 ext-damage-control:
-    pi -e extensions/damage-control.ts -e extensions/minimal.ts -e extensions/theme-cycler.ts
+    cd {{id}} && pi -e {{jd}}/extensions/damage-control.ts -e {{jd}}/extensions/minimal.ts -e {{jd}}/extensions/theme-cycler.ts
 
 # 13. Agent chain: sequential pipeline orchestrator
 ext-agent-chain:
-    pi -e extensions/agent-chain.ts -e extensions/theme-cycler.ts
+    cd {{id}} && pi -e {{jd}}/extensions/agent-chain.ts -e {{jd}}/extensions/theme-cycler.ts
 
 #g3
 
 # 14. Pi Pi: meta-agent that builds Pi agents with parallel expert research
 ext-pi-pi:
-    pi -e extensions/pi-pi.ts -e extensions/theme-cycler.ts
+    cd {{id}} && pi -e {{jd}}/extensions/pi-pi.ts -e {{jd}}/extensions/theme-cycler.ts
 
 #ext
 
 # 15. Session Replay: scrollable timeline overlay of session history (legit)
 ext-session-replay:
-    pi -e extensions/session-replay.ts -e extensions/minimal.ts
+    cd {{id}} && pi -e {{jd}}/extensions/session-replay.ts -e {{jd}}/extensions/minimal.ts
 
 # 16. Theme cycler: Ctrl+X forward, Ctrl+Q backward, /theme picker
 ext-theme-cycler:
-    pi -e extensions/theme-cycler.ts -e extensions/minimal.ts
+    cd {{id}} && pi -e {{jd}}/extensions/theme-cycler.ts -e {{jd}}/extensions/minimal.ts
 
 # utils
 
@@ -88,7 +91,7 @@ open +exts:
     #!/usr/bin/env bash
     args=""
     for ext in {{exts}}; do
-        args="$args -e extensions/$ext.ts"
+        args="$args -e {{jd}}/extensions/$ext.ts"
     done
     osascript -e "tell application \"iTerm\"
         activate
