@@ -1,5 +1,4 @@
 set dotenv-load := true
-set working-directory := "/Users/roy/Utilities/pi-vs-claude-code"
 
 jd := justfile_directory()
 id := invocation_directory()
